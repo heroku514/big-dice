@@ -1,0 +1,83 @@
+XCWORKSPACE = "ios/BigDice.xcworkspace"
+XCPROJECT = "ios/BigDice.xcodeproj"
+BUNDLE = "com.peakermap.bigdice"
+PROFILE = "match AppStore com.peakermap.bigdice"
+
+platform :ios do
+  lane :load_asc_api_key do
+    app_store_connect_api_key(
+      key_id: ENV.fetch("ASC_KEY_ID"),
+      issuer_id: ENV.fetch("ASC_ISSUER_ID"),
+      key_filepath: ENV.fetch("ASC_KEY_FILEPATH"),
+      in_house: false
+    )
+  end
+
+  lane :certs do
+    load_asc_api_key
+    match(type: "appstore", readonly: false, app_identifier: BUNDLE)
+  end
+
+  lane :build do
+    certs
+    update_code_signing_settings(
+      use_automatic_signing: false,
+      path: XCPROJECT,
+      team_id: ENV.fetch("APPLE_TEAM_ID"),
+      bundle_identifier: BUNDLE,
+      code_sign_identity: "Apple Distribution",
+      profile_name: PROFILE
+    )
+    original_path = ENV["PATH"]
+    ENV["PATH"] = original_path.split(":").reject { |p| p.include?("/homebrew/") || p.include?("/linuxbrew/") }.join(":")
+    begin
+      build_app(
+        workspace: XCWORKSPACE,
+        scheme: "BigDice",
+        export_method: "app-store",
+        output_directory: "build",
+        output_name: "BigDice.ipa",
+        clean: true,
+        export_options: {
+          method: "app-store",
+          signingStyle: "manual",
+          teamID: ENV.fetch("APPLE_TEAM_ID"),
+          provisioningProfiles: { BUNDLE => PROFILE },
+          uploadSymbols: true,
+          uploadBitcode: false,
+          compileBitcode: false,
+          manageAppVersionAndBuildNumber: false
+        }
+      )
+    ensure
+      ENV["PATH"] = original_path
+    end
+  end
+
+  lane :upload do
+    load_asc_api_key
+    upload_to_app_store(
+      ipa: "build/BigDice.ipa",
+      skip_metadata: true,
+      skip_screenshots: true,
+      submit_for_review: false,
+      precheck_include_in_app_purchases: false,
+      force: true,
+      run_precheck_before_submit: false
+    )
+  end
+
+  lane :screenshots do
+    load_asc_api_key
+    deliver(
+      skip_binary_upload: true,
+      skip_metadata: true,
+      skip_screenshots: false,
+      overwrite_screenshots: true,
+      force: true,
+      submit_for_review: false,
+      run_precheck_before_submit: false,
+      precheck_include_in_app_purchases: false
+    )
+  end
+end
